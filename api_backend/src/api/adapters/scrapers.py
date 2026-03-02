@@ -8,8 +8,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Awaitable, Callable
 from urllib.parse import urlparse
 
-import httpx
-
+from src.api.adapters.http_fetch import DEFAULT_USER_AGENT, fetch_html_or_raise
 from src.api.domain.pricing import cleanPrice
 
 logger = logging.getLogger(__name__)
@@ -262,17 +261,13 @@ def _extract_price_usd_from_html_fallback(html: str) -> str | None:
 
 
 async def _fetch_html(url: str, user_agent: str) -> str:
-    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-        resp = await client.get(
-            url,
-            headers={
-                "User-Agent": user_agent,
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "en-US,en;q=0.9",
-            },
-        )
-        resp.raise_for_status()
-        return resp.text
+    """Fetch HTML for scrapers with polite delays and basic anti-bot handling.
+
+    This function is intentionally thin: the canonical flow is implemented in
+    `src.api.adapters.http_fetch.fetch_html_or_raise` so all scrapers share the same
+    request behavior (headers, delay, and block detection).
+    """
+    return await fetch_html_or_raise(url, user_agent=user_agent, timeout_seconds=15.0)
 
 
 async def _scrape_generic_product_page(
@@ -517,7 +512,7 @@ def _resolve_scraper(domain: str) -> Callable[[str, Any], Awaitable[ScrapeResult
 
 
 # PUBLIC_INTERFACE
-async def scrape_product_title_and_price(url: str, *, user_agent: str = "PriceComparisonHubBot") -> ScrapeResult:
+async def scrape_product_title_and_price(url: str, *, user_agent: str = DEFAULT_USER_AGENT) -> ScrapeResult:
     """Scrape a product page URL and return normalized title and price.
 
     Flow name: ProductPageScrapeDispatcher
@@ -533,7 +528,7 @@ async def scrape_product_title_and_price(url: str, *, user_agent: str = "PriceCo
     Contract:
       - Inputs:
           * url: product page URL (string)
-          * user_agent: HTTP user-agent string
+          * user_agent: HTTP user-agent string (defaults to a realistic desktop browser UA)
       - Output:
           * ScrapeResult with:
               - title: best-effort product title (may be empty string if not found)
@@ -542,9 +537,9 @@ async def scrape_product_title_and_price(url: str, *, user_agent: str = "PriceCo
               - raw: debug metadata including strategy hints
       - Errors:
           * ValueError: if URL invalid or domain unsupported
-          * httpx.HTTPError: if the page cannot be fetched
+          * RuntimeError: fetch failures may surface as structured fetch errors (e.g., blocked/ratelimited)
       - Side effects:
-          * Performs an HTTP GET for the provided URL.
+          * Performs an HTTP GET for the provided URL (with per-host 2–3s polite delay).
     """
     domain = _extract_domain(url)
     if not domain:

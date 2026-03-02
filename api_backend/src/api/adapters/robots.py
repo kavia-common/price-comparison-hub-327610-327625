@@ -4,7 +4,7 @@ import logging
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
-import httpx
+from src.api.adapters.http_fetch import DEFAULT_USER_AGENT, FetchRequest, fetch
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ class RobotsDecision:
 
 
 # PUBLIC_INTERFACE
-async def check_robots_allowed(url: str, user_agent: str = "PriceComparisonHubBot") -> RobotsDecision:
+async def check_robots_allowed(url: str, user_agent: str = DEFAULT_USER_AGENT) -> RobotsDecision:
     """Check robots.txt allowance for a given URL.
 
     Contract:
@@ -41,15 +41,22 @@ async def check_robots_allowed(url: str, user_agent: str = "PriceComparisonHubBo
 
     robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
     try:
-        async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as client:
-            resp = await client.get(robots_url, headers={"User-Agent": user_agent})
-            if resp.status_code >= 400:
-                return RobotsDecision(
-                    allowed=True,
-                    reason=f"robots.txt not accessible (status {resp.status_code}); allowing by fallback.",
-                    details={"robots_url": robots_url, "status_code": resp.status_code},
-                )
-            body = resp.text.lower()
+        resp = await fetch(
+            FetchRequest(
+                url=robots_url,
+                timeout_seconds=5.0,
+                follow_redirects=True,
+                user_agent=user_agent,
+                headers={"Accept": "text/plain,*/*;q=0.8"},
+            )
+        )
+        if resp.status_code >= 400:
+            return RobotsDecision(
+                allowed=True,
+                reason=f"robots.txt not accessible (status {resp.status_code}); allowing by fallback.",
+                details={"robots_url": robots_url, "status_code": resp.status_code},
+            )
+        body = resp.text.lower()
     except Exception as exc:  # noqa: BLE001 (boundary: adapter)
         logger.warning("robots check failed; allowing by fallback", extra={"robots_url": robots_url})
         return RobotsDecision(
