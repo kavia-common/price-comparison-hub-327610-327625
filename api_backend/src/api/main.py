@@ -112,6 +112,24 @@ def health_check() -> dict:
 
 
 @app.get(
+    "/healthz",
+    tags=["Compare"],
+    summary="Readiness health check",
+    description="Readiness endpoint used by PreviewManager/Kavia health checks.",
+    operation_id="health_check_healthz",
+)
+# PUBLIC_INTERFACE
+def healthz() -> dict:
+    """Readiness health check endpoint.
+
+    This endpoint exists to satisfy the platform health-check path configured via
+    HEALTHCHECK_PATH (commonly `/healthz`), ensuring the container is marked ready
+    once Uvicorn is bound and the app is responding.
+    """
+    return {"status": "ok"}
+
+
+@app.get(
     "/docs/help",
     tags=["Compare"],
     summary="API usage help",
