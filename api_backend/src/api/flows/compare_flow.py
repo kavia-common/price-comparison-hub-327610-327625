@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.adapters.robots import check_robots_allowed
+from src.api.adapters.scrapers import scrape_product_title_and_price
 from src.api.core.settings import Settings
 from src.api.db.models import CompareQuery, Offer, OfferHistory, SiteConfig
 from src.api.domain.compare_key import NormalizedCompareInput, normalize_compare_input
@@ -131,18 +132,38 @@ async def _orchestrate_compare(
                 )
                 continue
 
+        title = normalized.product_name or ""
+        currency = "INR"
+        price_amount = None
+        raw_payload: dict = {"robots_policy": robots_policy}
+
+        # Best-effort scrape for known product-page domains.
+        # If scraping fails, we still persist an offer row with unknown price.
+        try:
+            scraped = await scrape_product_title_and_price(url)
+            title = scraped.title or title
+            currency = scraped.currency or currency
+            price_amount = scraped.price_amount
+            raw_payload["scrape"] = scraped.raw
+        except ValueError as exc:
+            # Unsupported domain / invalid URL for scraper.
+            raw_payload["scrape_error"] = {"type": "unsupported", "message": str(exc)}
+        except Exception as exc:  # noqa: BLE001 (boundary)
+            logger.warning(
+                "compare_flow: scrape failed; continuing with unknown price",
+                extra={"cache_key": normalized.cache_key, "domain": domain, "url": url, "error": str(exc)},
+            )
+            raw_payload["scrape_error"] = {"type": "fetch_or_parse", "message": str(exc)}
+
         offers.append(
             {
                 "source_domain": domain,
                 "source_url": url,
-                "title": normalized.product_name or "",
-                "currency": "USD",
-                "price_amount": None,
+                "title": title,
+                "currency": currency,
+                "price_amount": price_amount,
                 "availability": "unknown",
-                "raw_payload": {
-                    "note": "Scraping/parsing not yet implemented; this is a persistence + flow skeleton.",
-                    "robots_policy": robots_policy,
-                },
+                "raw_payload": raw_payload,
             }
         )
 
