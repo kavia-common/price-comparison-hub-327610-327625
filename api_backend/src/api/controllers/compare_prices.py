@@ -49,6 +49,8 @@ async def _run_site_scraper(
                 "title": result.title,
                 "currency": result.currency,
                 "price_amount": result.price_amount,
+                # Marked later after aggregating all successful offers.
+                "is_cheapest": False,
                 "raw": result.raw,
             },
             error=None,
@@ -113,7 +115,14 @@ async def comparePrices(product: str) -> dict[str, Any]:
             "results": [],
             "offers": [],
             "errors": [{"type": "ValidationError", "message": "product is required"}],
-            "meta": {"ok_count": 0, "error_count": 1, "elapsed_ms": 0},
+            "meta": {
+                "ok_count": 0,
+                "error_count": 1,
+                "elapsed_ms": 0,
+                "min_price_amount": None,
+                "max_price_amount": None,
+                "price_spread_amount": None,
+            },
         }
 
     if not _is_url(product):
@@ -133,7 +142,14 @@ async def comparePrices(product: str) -> dict[str, Any]:
             "results": results,
             "offers": [],
             "errors": [r["error"] for r in results if r["error"]],
-            "meta": {"ok_count": 0, "error_count": 3, "elapsed_ms": elapsed_ms},
+            "meta": {
+                "ok_count": 0,
+                "error_count": 3,
+                "elapsed_ms": elapsed_ms,
+                "min_price_amount": None,
+                "max_price_amount": None,
+                "price_spread_amount": None,
+            },
         }
 
     # URL case: run all site scrapers concurrently; collect per-site errors without failing whole request.
@@ -146,6 +162,38 @@ async def comparePrices(product: str) -> dict[str, Any]:
 
     offers: list[dict[str, Any]] = [o.offer for o in outcomes if o.ok and o.offer is not None]  # type: ignore[misc]
     errors: list[dict[str, Any]] = [o.error for o in outcomes if (not o.ok and o.error is not None)]  # type: ignore[misc]
+
+    def _is_valid_price_amount(v: Any) -> bool:
+        # price_amount is in minor units; treat <=0 and non-int as invalid/unknown.
+        return isinstance(v, int) and v > 0
+
+    # Sort successful offers by price ascending (valid numeric prices first; unknown/invalid last).
+    def _offer_sort_key(offer: dict[str, Any]) -> tuple[int, int, str]:
+        pa = offer.get("price_amount")
+        if _is_valid_price_amount(pa):
+            return (0, int(pa), str(offer.get("site") or ""))
+        return (1, 0, str(offer.get("site") or ""))
+
+    offers.sort(key=_offer_sort_key)
+
+    priced_amounts: list[int] = [
+        int(o["price_amount"]) for o in offers if _is_valid_price_amount(o.get("price_amount"))
+    ]
+
+    min_price_amount: int | None = None
+    max_price_amount: int | None = None
+    price_spread_amount: int | None = None
+
+    if priced_amounts:
+        min_price_amount = min(priced_amounts)
+        max_price_amount = max(priced_amounts)
+        # If only one valid price exists, spread is 0 (max-min).
+        price_spread_amount = max_price_amount - min_price_amount
+
+        # Mark cheapest option (ties allowed: mark all offers matching the min).
+        for offer in offers:
+            offer["is_cheapest"] = bool(offer.get("price_amount") == min_price_amount)
+
     results: list[dict[str, Any]] = [
         {"site": o.site, "ok": o.ok, "offer": o.offer, "error": o.error, "elapsed_ms": o.elapsed_ms} for o in outcomes
     ]
@@ -160,5 +208,8 @@ async def comparePrices(product: str) -> dict[str, Any]:
             "ok_count": len(offers),
             "error_count": len(errors),
             "elapsed_ms": elapsed_ms,
+            "min_price_amount": min_price_amount,
+            "max_price_amount": max_price_amount,
+            "price_spread_amount": price_spread_amount,
         },
     }

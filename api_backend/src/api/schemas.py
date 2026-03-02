@@ -115,6 +115,10 @@ class ComparePricesOffer(BaseModel):
     title: str = Field(description="Detected product title/name.")
     currency: str = Field(description="Currency code, e.g. INR or USD.")
     price_amount: int | None = Field(description="Price in minor units (e.g., cents/paise), or null if unknown.")
+    is_cheapest: bool = Field(
+        default=False,
+        description="True if this offer is the lowest-priced valid offer among successful results (ties may be marked).",
+    )
     raw: dict[str, Any] = Field(description="Raw scraper debug payload.")
 
 
@@ -130,6 +134,18 @@ class ComparePricesMeta(BaseModel):
     ok_count: int = Field(description="Number of successful site scrapes.")
     error_count: int = Field(description="Number of failed site scrapes.")
     elapsed_ms: int = Field(description="Total controller time in milliseconds.")
+    min_price_amount: int | None = Field(
+        default=None,
+        description="Minimum valid price_amount among successful offers (minor units). Null if no valid prices.",
+    )
+    max_price_amount: int | None = Field(
+        default=None,
+        description="Maximum valid price_amount among successful offers (minor units). Null if no valid prices.",
+    )
+    price_spread_amount: int | None = Field(
+        default=None,
+        description="Difference between max_price_amount and min_price_amount (minor units). Null if no valid prices.",
+    )
 
 
 class ComparePricesResponse(BaseModel):
