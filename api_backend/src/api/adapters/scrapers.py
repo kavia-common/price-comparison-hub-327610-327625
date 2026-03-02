@@ -10,6 +10,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from src.api.domain.pricing import cleanPrice
+
 logger = logging.getLogger(__name__)
 
 
@@ -18,15 +20,23 @@ class ScrapeResult:
     """Normalized scrape result for a product page.
 
     Invariants:
-      - price_amount is expressed in "minor units" for the chosen currency
-        (e.g., cents for USD, paise for INR).
+      - All scrapers in this module standardize currency to INR.
+      - price_amount is expressed in "minor units" for INR (paise).
       - currency is an ISO-ish code used by the rest of the backend (best-effort).
     """
 
     title: str
     currency: str
-    price_amount: int | None  # minor units (paise for INR, cents for USD, etc.)
+    price_amount: int | None  # INR minor units (paise)
     raw: dict[str, Any]
+
+
+def _inr_rupees_to_paise(amount_inr: float | None) -> int | None:
+    """Convert INR major units (rupees float) to minor units (paise int)."""
+    if amount_inr is None:
+        return None
+    # Use round to avoid truncation issues from floats; amounts are approximate anyway (scraped).
+    return int(round(amount_inr * 100))
 
 
 def _extract_domain(url: str) -> str:
@@ -279,28 +289,27 @@ async def _scrape_generic_product_page(
     if not title:
         title = _extract_title_from_html_fallback(html)
 
-    currency = (price_currency or default_currency or "INR").upper()
+    currency_hint = (price_currency or default_currency or "INR").upper()
 
     if not price_text:
-        if currency == "USD":
+        # Keep using currency-aware fallback extraction to maximize hit rate.
+        if currency_hint == "USD":
             price_text = _extract_price_usd_from_html_fallback(html)
         else:
             price_text = _extract_price_inr_from_html_fallback(html)
 
-    if currency == "USD":
-        price_amount = _parse_usd_to_cents(price_text)
-    else:
-        # Default to INR parsing for now.
-        currency = "INR"
-        price_amount = _parse_inr_to_paise(price_text)
+    amount_inr = cleanPrice(price_text, currency_hint=currency_hint, target_currency="INR")
+    price_amount = _inr_rupees_to_paise(amount_inr)
 
     return ScrapeResult(
         title=title,
-        currency=currency,
+        currency="INR",
         price_amount=price_amount,
         raw={
             "strategy": "generic_jsonld_fallback",
             "price_text": price_text,
+            "currency_hint": currency_hint,
+            "amount_inr": amount_inr,
             "jsonld_count": len(jsonld),
             "jsonld_price_currency": price_currency,
         },
@@ -393,17 +402,22 @@ async def _scrape_amazon(url: str, *, user_agent: str) -> ScrapeResult:
     if not price_text:
         price_text = _extract_price_usd_from_html_fallback(html)
 
-    currency = (curr_ld or "USD").upper() or "USD"
-    currency = "USD"  # amazon.com expected currency
+    currency_hint = (curr_ld or "USD").upper() or "USD"
+    currency_hint = "USD"  # amazon.com expected currency
+
+    amount_inr = cleanPrice(price_text, currency_hint=currency_hint, target_currency="INR")
+    price_amount = _inr_rupees_to_paise(amount_inr)
 
     return ScrapeResult(
         title=title,
-        currency=currency,
-        price_amount=_parse_usd_to_cents(price_text),
+        currency="INR",
+        price_amount=price_amount,
         raw={
             "site": "amazon.com",
             "strategy": "amazon_best_effort",
             "price_text": price_text,
+            "currency_hint": currency_hint,
+            "amount_inr": amount_inr,
             "jsonld_count": len(jsonld),
             "jsonld_price_currency": curr_ld,
         },
@@ -442,17 +456,22 @@ async def _scrape_flipkart(url: str, *, user_agent: str) -> ScrapeResult:
     if not price_text:
         price_text = _extract_price_inr_from_html_fallback(html)
 
-    currency = (curr_ld or "INR").upper() or "INR"
-    currency = "INR"  # flipkart expected currency
+    currency_hint = (curr_ld or "INR").upper() or "INR"
+    currency_hint = "INR"  # flipkart expected currency
+
+    amount_inr = cleanPrice(price_text, currency_hint=currency_hint, target_currency="INR")
+    price_amount = _inr_rupees_to_paise(amount_inr)
 
     return ScrapeResult(
         title=title,
-        currency=currency,
-        price_amount=_parse_inr_to_paise(price_text),
+        currency="INR",
+        price_amount=price_amount,
         raw={
             "site": "flipkart.com",
             "strategy": "flipkart_best_effort",
             "price_text": price_text,
+            "currency_hint": currency_hint,
+            "amount_inr": amount_inr,
             "jsonld_count": len(jsonld),
             "jsonld_price_currency": curr_ld,
         },
