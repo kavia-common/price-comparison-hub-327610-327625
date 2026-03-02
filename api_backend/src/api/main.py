@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,12 +30,26 @@ app = FastAPI(
     openapi_tags=openapi_tags,
 )
 
+
+def _split_csv_env(name: str, default: str) -> list[str]:
+    raw = os.getenv(name, default)
+    return [p.strip() for p in raw.split(",") if p.strip()]
+
+
+# CORS: use environment-provided allowlist in preview/prod.
+# NOTE: Using "*" with allow_credentials=True is invalid per CORS spec; browsers will block it.
+allowed_origins = _split_csv_env("ALLOWED_ORIGINS", "http://localhost:3000")
+allowed_headers = _split_csv_env("ALLOWED_HEADERS", "Content-Type,Authorization")
+allowed_methods = _split_csv_env("ALLOWED_METHODS", "GET,POST,PUT,DELETE,PATCH,OPTIONS")
+cors_max_age = int(os.getenv("CORS_MAX_AGE", "3600"))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=allowed_methods,
+    allow_headers=allowed_headers,
+    max_age=cors_max_age,
 )
 
 
