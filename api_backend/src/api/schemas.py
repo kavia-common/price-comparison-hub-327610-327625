@@ -92,3 +92,49 @@ class DebugRobotsCheckResponse(BaseModel):
     allowed: bool = Field(description="Whether fetching this URL is allowed under current policy.")
     reason: str = Field(description="Human-readable reasoning for the decision.")
     details: dict[str, Any] = Field(description="Additional decision metadata.")
+
+
+class ComparePricesRequest(BaseModel):
+    product: str = Field(
+        description="Product URL (preferred) or product name/keywords.",
+        min_length=1,
+        max_length=2083,
+    )
+
+
+class ComparePricesSiteError(BaseModel):
+    site: str = Field(description="Site identifier (site1/site2/site3).")
+    type: str = Field(description="Error class/category.")
+    message: str = Field(description="Human-readable error message.")
+
+
+class ComparePricesOffer(BaseModel):
+    site: str = Field(description="Site identifier (site1/site2/site3).")
+    source_domain: str = Field(description="Domain extracted from the scraped URL.")
+    source_url: str = Field(description="Input URL used for scraping.")
+    title: str = Field(description="Detected product title/name.")
+    currency: str = Field(description="Currency code, e.g. INR or USD.")
+    price_amount: int | None = Field(description="Price in minor units (e.g., cents/paise), or null if unknown.")
+    raw: dict[str, Any] = Field(description="Raw scraper debug payload.")
+
+
+class ComparePricesSiteResult(BaseModel):
+    site: str = Field(description="Site identifier (site1/site2/site3).")
+    ok: bool = Field(description="True if scraping succeeded for this site.")
+    offer: ComparePricesOffer | None = Field(default=None, description="Offer data when ok=true.")
+    error: ComparePricesSiteError | None = Field(default=None, description="Error data when ok=false.")
+    elapsed_ms: int = Field(description="Time spent for this site's scrape attempt in milliseconds.")
+
+
+class ComparePricesMeta(BaseModel):
+    ok_count: int = Field(description="Number of successful site scrapes.")
+    error_count: int = Field(description="Number of failed site scrapes.")
+    elapsed_ms: int = Field(description="Total controller time in milliseconds.")
+
+
+class ComparePricesResponse(BaseModel):
+    input: dict[str, Any] = Field(description="Echoed and classified input payload.")
+    results: list[ComparePricesSiteResult] = Field(description="Per-site outcomes.")
+    offers: list[ComparePricesOffer] = Field(description="Flattened list of successful offers.")
+    errors: list[dict[str, Any]] = Field(description="Flattened list of per-site error payloads.")
+    meta: ComparePricesMeta = Field(description="Summary counts and timings.")

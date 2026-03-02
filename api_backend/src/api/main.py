@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from src.api.core.settings import get_settings
 from src.api.db.init_db import init_db
-from src.api.routers import admin, compare, history
+from src.api.routers import admin, compare, compare_prices, history
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -113,5 +113,6 @@ def docs_help() -> dict:
 
 
 app.include_router(compare.router)
+app.include_router(compare_prices.router)
 app.include_router(history.router)
 app.include_router(admin.router)
