@@ -1,0 +1,4 @@
+{
+    "command": "pytest",
+    "working_directory": "/home/kavia/workspace/code-generation/price-comparison-hub-327610-327625/api_backend"
+}
