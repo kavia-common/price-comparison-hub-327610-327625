@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from src.api.core.settings import get_settings
+from src.api.core.settings import get_settings_optional
 from src.api.db.init_db import init_db
 from src.api.routers import admin, compare, compare_prices, history
 
@@ -53,17 +53,35 @@ app.add_middleware(
 )
 
 
-def _build_engine_and_sessionmaker() -> async_sessionmaker[AsyncSession]:
-    settings = get_settings()
+def _build_engine_and_sessionmaker() -> async_sessionmaker[AsyncSession] | None:
+    """Build DB engine/sessionmaker if DB is configured, otherwise return None.
+
+    Returning None allows the service to start in environments where the DB is not
+    wired yet (preview/dev). DB-backed endpoints will be unavailable in that case.
+    """
+    settings = get_settings_optional()
+    if settings is None:
+        return None
     engine = create_async_engine(settings.postgres_url, pool_pre_ping=True, future=True)
     return async_sessionmaker(engine, expire_on_commit=False)
 
 
 @app.on_event("startup")
 async def _on_startup() -> None:
-    """Initialize resources on service startup."""
+    """Initialize resources on service startup.
+
+    If POSTGRES_URL/DATABASE_URL is not set, DB initialization is skipped so the
+    service can still become ready and serve non-DB endpoints (e.g. health check).
+    """
     session_maker = _build_engine_and_sessionmaker()
     app.state.session_maker = session_maker
+
+    if session_maker is None:
+        logger.warning(
+            "DB is not configured (POSTGRES_URL/DATABASE_URL missing). "
+            "DB-backed endpoints will return 503 until configured."
+        )
+        return
 
     # Create tables if needed (safe for dev; production should use migrations later).
     engine = session_maker.kw["bind"]
@@ -76,11 +94,14 @@ def get_session_maker() -> async_sessionmaker[AsyncSession]:
 
     Contract:
       - Must be called after startup event has run.
-      - Raises RuntimeError if session maker is not initialized.
+      - Raises RuntimeError if DB is not configured OR if startup did not initialize it.
     """
     session_maker = getattr(app.state, "session_maker", None)
     if session_maker is None:
-        raise RuntimeError("DB session maker not initialized. Startup event may not have run.")
+        raise RuntimeError(
+            "DB session maker not available. "
+            "Database is not configured (POSTGRES_URL/DATABASE_URL missing) or startup did not run."
+        )
     return session_maker
 
 

@@ -43,13 +43,20 @@ def _get_settings_dep() -> Settings:
     # Imported lazily to avoid cyclic imports in app initialization
     from src.api.core.settings import get_settings
 
-    return get_settings()
+    try:
+        return get_settings()
+    except ValueError as exc:
+        # DB not configured; compare flow cannot run.
+        raise HTTPException(status_code=503, detail="Database is not configured.") from exc
 
 
 def _get_session_maker_dep() -> async_sessionmaker[AsyncSession]:
     from src.api.main import get_session_maker
 
-    return get_session_maker()
+    try:
+        return get_session_maker()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Database is not configured.") from exc
 
 
 @router.post(

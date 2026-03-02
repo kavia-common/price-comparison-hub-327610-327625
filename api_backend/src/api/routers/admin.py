@@ -19,7 +19,10 @@ router = APIRouter(prefix="/admin", tags=["Admin"])
 def _get_session_maker_dep() -> async_sessionmaker[AsyncSession]:
     from src.api.main import get_session_maker
 
-    return get_session_maker()
+    try:
+        return get_session_maker()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Database is not configured.") from exc
 
 
 def _to_out(row: SiteConfig) -> SiteConfigOut:

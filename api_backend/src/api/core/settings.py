@@ -58,3 +58,32 @@ def get_settings() -> Settings:
         postgres_url=_normalize_async_postgres_url(postgres_url),
         cache_ttl_seconds=cache_ttl_seconds,
     )
+
+
+# PUBLIC_INTERFACE
+def get_settings_optional() -> Settings | None:
+    """Load application settings if configured, otherwise return None.
+
+    This is intended for environments (like preview/dev) where the service should still
+    start and provide non-DB functionality (e.g., health endpoint, lightweight controllers)
+    even when the database is not configured.
+
+    Contract:
+      - Inputs: environment variables
+      - Output: Settings if POSTGRES_URL/DATABASE_URL is present; otherwise None.
+      - Errors: raises ValueError only for invalid optional envs (e.g., bad CACHE_TTL_SECONDS).
+    """
+    postgres_url = os.getenv("POSTGRES_URL") or os.getenv("DATABASE_URL")
+    if not postgres_url:
+        return None
+
+    cache_ttl_raw = os.getenv("CACHE_TTL_SECONDS", "900")
+    try:
+        cache_ttl_seconds = int(cache_ttl_raw)
+    except ValueError as exc:
+        raise ValueError("CACHE_TTL_SECONDS must be an integer.") from exc
+
+    return Settings(
+        postgres_url=_normalize_async_postgres_url(postgres_url),
+        cache_ttl_seconds=cache_ttl_seconds,
+    )
